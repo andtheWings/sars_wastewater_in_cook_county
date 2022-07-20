@@ -1,0 +1,3 @@
+[submodule "covid19-wastewater-data"]
+	path = covid19-wastewater-data
+	url = https://github.com/biobotanalytics/covid19-wastewater-data.git
