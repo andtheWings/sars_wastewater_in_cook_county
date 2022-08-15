@@ -1,0 +1,45 @@
+
+```{r}
+library(targets)
+library(dplyr)
+library(tidymodels)
+library(xgboost)
+library(modeltime)
+library(tidyverse)
+library(lubridate)
+library(timetk)
+```
+
+
+```{r}
+timetk::plot_time_series(
+    .data = tar_read(biobot_cases_in_cook),
+    .date_var = date,
+    .value = rolling_average_cases_per_100k_centered
+)
+```
+
+```{r}
+split_biobot_cases_in_cook <- 
+    tar_read(biobot_cases_in_cook) |> 
+    rsample::initial_time_split()
+```
+
+```{r}
+model_fit_arima_no_boost <- 
+    arima_reg() %>%
+    set_engine(engine = "auto_arima") %>%
+    fit(rolling_average_cases_per_100k_centered ~ date, data = training(split_biobot_cases_in_cook))
+```
+
+```{r}
+model_fit_arima_boosted <- 
+    arima_boost(
+        min_n = 2,
+        learn_rate = 0.015
+    ) %>%
+    set_engine(engine = "auto_arima_xgboost") %>%
+    fit(value ~ date + as.numeric(date) + factor(month(date, label = TRUE), ordered = F),
+        data = training(splits))
+```
+

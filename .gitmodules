@@ -1,3 +1,6 @@
 [submodule "covid19-wastewater-data"]
 	path = covid19-wastewater-data
 	url = https://github.com/biobotanalytics/covid19-wastewater-data.git
+[submodule "covid-scripts"]
+	path = covid-scripts
+	url = git@github.com:Cook-County-Department-of-Public-Health/covid-scripts.git
