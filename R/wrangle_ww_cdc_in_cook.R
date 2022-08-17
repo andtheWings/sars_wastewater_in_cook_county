@@ -1,0 +1,49 @@
+wrangle_ww_cdc_in_cook <- function(ww_cdc_raw_df) {
+    
+    df1 <-
+        ww_cdc_raw_df |> 
+        #Filter for Cook County cases sampled at Wastewater Treatment Plants
+        filter(grepl("17031", county_names) & sample_location == "wwtp")|>
+        group_by(wwtp_name, sample_collect_date, major_lab_method, population_served) |>
+        summarize(
+            across(
+                c(flow_rate, pcr_target_avg_conc),
+                mean
+            ),
+            .groups = "keep"
+        ) |> 
+        ungroup() |> 
+        mutate(
+            short_name = 
+                case_when(
+                    grepl("kirie", wwtp_name) ~ "kirie",
+                    grepl("egan", wwtp_name) ~ "egan",
+                    grepl("hanover", wwtp_name) ~ "hanover",
+                    grepl("brien", wwtp_name) ~ "obrien",
+                    grepl(" sws", wwtp_name) ~ "stickney 1",
+                    grepl(" ws", wwtp_name) ~ "stickney 2",
+                    grepl("lemont", wwtp_name) ~ "lemont",
+                    grepl("calumet", wwtp_name) ~ "calumet"
+                ),
+            display_name = 
+                case_when(
+                    grepl("kirie", wwtp_name) ~ "Kirie, Mid Northwest Suburbs",
+                    grepl("egan", wwtp_name) ~ "Egan, Far Northwest Suburbs",
+                    grepl("hanover", wwtp_name) ~ "Hanover Park, Far Northwest Suburbs",
+                    grepl("brien", wwtp_name) ~ "O'Brien, Northeast Suburbs and Chicago",
+                    grepl(" sws", wwtp_name) ~ "Stickney (1), West Suburbs and Chicago",
+                    grepl(" ws", wwtp_name) ~ "Stickney (2), West Suburbs and Chicago",
+                    grepl("lemont", wwtp_name) ~ "Lemont, Far Southwest Suburbs",
+                    grepl("calumet", wwtp_name) ~ "Calumet, South Suburbs and Chicago"
+                ),
+            .after = wwtp_name
+        ) |> 
+        mutate(
+            flow_rate_l = flow_rate * 3.785411784, #convert flow_rate to liters
+            conc_flowrt = pcr_target_avg_conc * flow_rate_l
+        ) |> 
+        arrange(sample_collect_date)
+    
+    return(df1)
+    
+}

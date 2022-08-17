@@ -19,31 +19,17 @@ tar_option_set(packages = "dplyr")
 
 # End this file with a list of target objects.
 list(
-  tar_target(
-      biobot_wastewater_by_county_raw_csv,
-      "covid19-wastewater-data/wastewater_by_county.csv",
-      format = "file"
-  ),
-  tar_target(
-      biobot_wastewater_by_county_raw,
-      readr::read_csv(biobot_wastewater_by_county_raw_csv)
-  ),
-  tar_target(
-      biobot_wastewater_in_cook,
-      wrangle_biobot_data_to_cook(biobot_wastewater_by_county_raw)
-  ),
-  tar_target(
-      biobot_cases_by_county_raw_csv,
-      "covid19-wastewater-data/cases_by_county.csv",
-      format = "file"
-  ),
-  tar_target(
-      biobot_cases_by_county_raw,
-      readr::read_csv(biobot_cases_by_county_raw_csv)
-  ),
-  tar_target(
-      biobot_cases_in_cook,
-      wrangle_biobot_data_to_cook(biobot_cases_by_county_raw) |> 
-          filter(date < lubridate::ymd("2022-06-06"))
-  )
+    tar_target(
+        ww_cdc_raw_file,
+        "data/contour-export-NWSS-Raw-Export-Export-08-16-2022.csv",
+        format = "file"
+    ),
+    tar_target(
+        ww_cdc_raw,
+        readr::read_csv(ww_cdc_raw_file)
+    ),
+    tar_target(
+        ww_cdc_in_cook,
+        wrangle_ww_cdc_in_cook(ww_cdc_raw)
+    )
 )
