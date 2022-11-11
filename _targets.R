@@ -15,35 +15,22 @@ sapply(
 )
 
 # Set target-specific options such as packages.
-tar_option_set(packages = "dplyr")
+tar_option_set(packages = c("dplyr", "tidyr"))
 
 # End this file with a list of target objects.
 list(
-  tar_target(
-      biobot_wastewater_by_county_raw_csv,
-      "covid19-wastewater-data/wastewater_by_county.csv",
-      format = "file"
-  ),
-  tar_target(
-      biobot_wastewater_by_county_raw,
-      readr::read_csv(biobot_wastewater_by_county_raw_csv)
-  ),
-  tar_target(
-      biobot_wastewater_in_cook,
-      wrangle_biobot_data_to_cook(biobot_wastewater_by_county_raw)
-  ),
-  tar_target(
-      biobot_cases_by_county_raw_csv,
-      "covid19-wastewater-data/cases_by_county.csv",
-      format = "file"
-  ),
-  tar_target(
-      biobot_cases_by_county_raw,
-      readr::read_csv(biobot_cases_by_county_raw_csv)
-  ),
-  tar_target(
-      biobot_cases_in_cook,
-      wrangle_biobot_data_to_cook(biobot_cases_by_county_raw) |> 
-          filter(date < lubridate::ymd("2022-06-06"))
-  )
+    tar_target(
+        ww_cdc_analyzed_file,
+        "data/contour-export-NWSS-Analyzed-Export-Export-07-26-2022.csv",
+        format = "file"
+    ),
+    tar_target(
+        ww_cdc_analyzed_raw,
+        readr::read_csv(ww_cdc_analyzed_file)
+        # 5 parsing errors, all with major lab method, but none in Cook County
+    ),
+    tar_target(
+        ww_cdc_in_cook,
+        wrangle_ww_cdc_in_cook(ww_cdc_analyzed_raw)
+    )
 )
