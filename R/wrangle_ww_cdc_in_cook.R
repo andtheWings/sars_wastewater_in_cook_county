@@ -11,6 +11,8 @@ wrangle_ww_cdc_in_cook <- function(ww_cdc_analyzed_raw_df) {
             date, day_num, sample_collect_date_time,
             # WWTP Variables
             wwtp_name, population_served,
+            # Location Variables
+            longitude, latitude,
             # Measurement Variables
             pcr_target_avg_conc, pcr_target_units, 
             # Adjustment Variables
@@ -30,7 +32,7 @@ wrangle_ww_cdc_in_cook <- function(ww_cdc_analyzed_raw_df) {
         #
         mutate(
             short_name =
-                factor(
+                # factor(
                     case_when(
                         grepl("kirie", wwtp_name) ~ "kirie",
                         grepl("egan", wwtp_name) ~ "egan",
@@ -41,11 +43,11 @@ wrangle_ww_cdc_in_cook <- function(ww_cdc_analyzed_raw_df) {
                         grepl("lemont", wwtp_name) ~ "lemont",
                         grepl("calumet", wwtp_name) ~ "calumet"
                     ),
-                    ordered = TRUE,
-                    levels = c("hanover", "egan", "kirie", "obrien", "stickney 1", "stickney 2", "lemont", "calumet")
-                ),
+                    # ordered = TRUE,
+                    # levels = c("hanover", "egan", "kirie", "obrien", "stickney 1", "stickney 2", "lemont", "calumet")
+                # ),
             display_name =
-                factor(
+                # factor(
                     case_when(
                         grepl("kirie", wwtp_name) ~ "Kirie, Mid Northwest Suburbs",
                         grepl("egan", wwtp_name) ~ "Egan, Far Northwest Suburbs",
@@ -56,9 +58,9 @@ wrangle_ww_cdc_in_cook <- function(ww_cdc_analyzed_raw_df) {
                         grepl("lemont", wwtp_name) ~ "Lemont, Far Southwest Suburbs",
                         grepl("calumet", wwtp_name) ~ "Calumet, South Suburbs and Chicago"
                     ),
-                    ordered = TRUE,
-                    levels = c("Hanover Park, Far Northwest Suburbs", "Egan, Far Northwest Suburbs", "Kirie, Mid Northwest Suburbs", "O'Brien, Northeast Suburbs and Chicago", "Stickney (1), West Suburbs and Chicago", "Stickney (2), West Suburbs and Chicago", "Lemont, Far Southwest Suburbs", "Calumet, South Suburbs and Chicago")
-                ),
+                #     ordered = TRUE,
+                #     levels = c("Hanover Park, Far Northwest Suburbs", "Egan, Far Northwest Suburbs", "Kirie, Mid Northwest Suburbs", "O'Brien, Northeast Suburbs and Chicago", "Stickney (1), West Suburbs and Chicago", "Stickney (2), West Suburbs and Chicago", "Lemont, Far Southwest Suburbs", "Calumet, South Suburbs and Chicago")
+                # ),
             .after = wwtp_name
         ) |> 
         mutate(
