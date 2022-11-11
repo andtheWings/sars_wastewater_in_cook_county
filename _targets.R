@@ -15,21 +15,22 @@ sapply(
 )
 
 # Set target-specific options such as packages.
-tar_option_set(packages = "dplyr")
+tar_option_set(packages = c("dplyr", "tidyr"))
 
 # End this file with a list of target objects.
 list(
     tar_target(
-        ww_cdc_raw_file,
-        "data/contour-export-NWSS-Raw-Export-Export-08-16-2022.csv",
+        ww_cdc_analyzed_file,
+        "data/contour-export-NWSS-Analyzed-Export-Export-07-26-2022.csv",
         format = "file"
     ),
     tar_target(
-        ww_cdc_raw,
-        readr::read_csv(ww_cdc_raw_file)
+        ww_cdc_analyzed_raw,
+        readr::read_csv(ww_cdc_analyzed_file)
+        # 5 parsing errors, all with major lab method, but none in Cook County
     ),
     tar_target(
         ww_cdc_in_cook,
-        wrangle_ww_cdc_in_cook(ww_cdc_raw)
+        wrangle_ww_cdc_in_cook(ww_cdc_analyzed_raw)
     )
 )
