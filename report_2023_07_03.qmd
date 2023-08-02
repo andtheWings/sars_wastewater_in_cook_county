@@ -1,0 +1,576 @@
+---
+title: "Status Update for July 3rd, 2023"
+date: 2023-07-03
+author: Daniel P. Hall Riggins
+format: 
+    html:
+        embed-resources: true
+---
+
+Note, this is a adaption of the analysis from March 25th, 2023, except that encounters for **COVID-like illness** have been changed to encounters for **COVID-specific diagnosis**. There is also some additional consideration of signals from individual treatment plants toward the end.
+
+## Prep
+
+```{r}
+#| output: false
+library(targets)
+library(tidyverse)
+library(lubridate)
+library(timetk)
+library(plotly)
+sapply(
+    paste0("R/", list.files("R/")),
+    source
+)
+```
+
+Here I load my data. I have created a series of upstream data wrangling steps that culminate in a list containing separate dataframes for each WWTP and one for the aggregation of all plants.
+
+```{r}
+load("data/2023-01-27_hosp-metrics.Rdata")
+tar_make()
+tar_load(nwss)
+ed_csd <- tar_read(percent_ed_covid_specific_diagnosis_raw)
+```
+
+Dataframes can be queried with the following names:
+
+```{r}
+names(nwss)
+```
+
+Here is the dataframe for the aggregation of all WWTP's:
+
+```{r}
+glimpse(nwss$cook_aggregate)
+```
+
+And here is the dataframe for ED encounters:
+
+```{r}
+glimpse(ed_csd)
+```
+
+I have created a function (discussed previously) that fits a spline to a numerical variable along with corresponding z-score for the spline, slope of the spline, and percent daily change of the slope:
+
+```{r}
+add_spline_and_slope
+```
+
+The purpose of the standardized .z_spline and the .percent_daily_change variables is to enable comparison between time-series with different unit scales.
+
+In practice, you just tack the function onto the dataframe for which you want a spline fitted.
+
+```{r}
+ed_csd_2022 <-
+    ed_csd |> 
+    filter(date >= ymd("2022-02-15") & date < ymd("2023-01-01")) |> 
+    add_spline_and_slope("dd_specific")
+
+glimpse(ed_csd_2022)
+```
+
+## Comparing Emergency Department and Wastewater Trends
+
+Here are ED visit dynamics fitted with a spline across 2022:
+
+```{r}
+ggplotly(
+    ed_csd_2022 |>  
+    ggplot(aes(x = date)) +
+    geom_point(aes(y = dd_specific), alpha = 0.25, color = "blue") +
+    geom_line(aes(y = .spline), color = "blue") +
+    labs(
+        title = "Percent ED visits due to COVID-like Illness",
+        x = "2022",
+        y = NULL
+    ) +
+    theme_bw()
+)
+```
+
+
+Which follows a vaguely similar shape to aggregate wastewater trends across the same time period:
+
+```{r}
+nwss_agg_2022 <- 
+    nwss$cook_aggregate |> 
+    filter(date >= ymd("2022-02-15") & date < ymd("2023-01-01")) |> 
+    add_spline_and_slope("conc_flowrt_sum")
+
+ggplotly(
+    nwss_agg_2022 |>  
+    ggplot(aes(x = date)) +
+    geom_point(aes(y = conc_flowrt_sum), alpha = 0.25, color = "red") +
+    geom_line(aes(y = .spline), color = "red") +
+    labs(
+        title = "Total SARS-CoV-2 Viral Copies per Day",
+        x = "2022",
+        y = "Copies / Day"
+    ) +
+    theme_bw()
+)
+```
+
+Let's compare the standardized splines across time to see if one tends to precede the other:
+
+```{r}
+ggplotly( 
+    ggplot() +
+    geom_line(aes(x = date, y = .z_spline), color = "blue", data = ed_csd_2022) +    
+    geom_line(aes(x = date, y = .z_spline), color = "red", data = nwss_agg_2022) +
+    labs(
+        title = "Standardized %ED visits for COVID-Specific Diagnosis (blue) <br> and SARS-CoV-2 Viral Copies in WWTP's per Day (red)",
+        x = "2022",
+        y = NULL
+    ) +
+    theme_bw()
+)
+```
+
+One trend does not consistently precede the other. As such, when using an early warning system, I expect both trends to be more useful that either one alone.
+
+## Simulating Real-Time Information
+
+In the context of an early warning system, we will be running up against the forward edge of the time series. This decreases spline fit accuracy. To illustrate, I have made a function for visualizing a series of splines as time moves forward:
+
+```{r}
+plot_spline_snapshots
+```
+
+Watch how the spline estimate for March 1st changes over time. In the first plot, March 1st is at the leading edge of the time series with a value of 0.53%. As time moves forward, the estimate for March 1st "bends" upward. In the last plot, the leading edge is now at March 5th and the estimated value for March 1st has increased to 0.71%.
+
+```{r}
+spline_snapshot_plots <-
+    ed_csd_2022 |> 
+    filter(date >= ymd("2022-02-15") & date < ymd("2023-01-01")) |> 
+    plot_spline_snapshots(
+        date_vct_slice = 15:19, 
+        y_var = "dd_specific", 
+        title_char = "Percent ED Visits for COVID-specific Diagnosis"
+    )    
+
+spline_snapshot_plots[[1]]
+```
+```{r}
+spline_snapshot_plots[[3]]
+```
+
+```{r}
+spline_snapshot_plots[[5]]
+```
+
+The last fit for March 1st is probably more accurate, but in the context of early warning systems, we will not have that benefit of hindsight. 
+
+To add data about what the spline fit would have looked like at the leading edge for each time point, I have created the following function:
+
+```{r}
+add_spline_snapshots
+```
+
+We see that using these snapshots, the signal gets substantially noisier, but more truthfully describes what the state of our knowledge would have been at each time point:
+
+```{r}
+nwss_agg_2022_snapshots <- add_spline_snapshots(nwss_agg_2022, "conc_flowrt_sum")
+ed_csd_2022_snapshots <- add_spline_snapshots(ed_csd_2022, "dd_specific")
+
+ggplotly(
+    nwss_agg_2022_snapshots |> 
+        ggplot(aes(x = date)) +
+        geom_point(aes(y = conc_flowrt_sum), alpha = 0.25, color = "red") +
+        geom_line(aes(y = .spline), color = "red") +
+        geom_line(aes(y = .spline_snapshot), color = "maroon") + 
+        theme_bw() +
+        labs(
+            title = "SARS-CoV-2 Viral Copies per Day <br> Full Spline (red), Spline Snapshots (Maroon)",
+            x = "2022",
+            y = NULL
+        )
+)
+```
+
+
+When assessing our Early Warning System, I will use snapshots based on leading edges rather than a spline fit on the whole range of data.
+
+## Choosing a Trigger Threshold for Early Warning
+
+Following the trends for both ED visits and Wastewater viral copies, we see that there is no consistent baseline to which a trend returns after a surge. This makes it difficult to set a threshold for triggering early warning. Fortunately, the .spline_slope and .percent_daily_change trends do have a consistent baseline of zero, making them more suitable for setting a consistent threshold. Here are the trends using all available data:
+
+```{r}
+ggplotly(
+    ggplot() +
+    geom_line(aes(x = date, y = .percent_daily_change), color = "blue", data = ed_csd_2022_snapshots) +    
+    geom_line(aes(x = date, y = .percent_daily_change), color = "red", data = nwss_agg_2022_snapshots) +
+    labs(
+        title = "Percent Daily Change for <br> ED visits due to COVID-specific Diagnosis (blue) <br> and SARS-CoV-2 Viral Copies per Day (red)",
+        x = "2022",
+        y = NULL
+    ) +
+    #coord_cartesian(ylim = c(-8, 8)) +
+    theme_bw()
+)
+```
+
+And here are the same trends using snapshots of the information we would have had at the leading edge of each date:
+
+```{r}
+ggplotly(
+    ggplot() +
+    geom_line(aes(x = date, y = .pdc_snapshot), color = "blue", data = ed_csd_2022_snapshots) +    
+    geom_line(aes(x = date, y = .pdc_snapshot), color = "red", data = nwss_agg_2022_snapshots) +
+    labs(
+        title = "Snapshots of Percent Daily Change for <br> ED visits due to COVID-like Illness (blue) <br> and SARS-CoV-2 Viral Copies per Day (red)",
+        x = "2022",
+        y = NULL
+    ) +
+    coord_cartesian(ylim = c(-8, 8)) +
+    theme_bw()
+)
+```
+
+Again, the signal is much noisier, but more truthful. We see that when one or both trends have a percent daily change of one or greater, this roughly corresponds to the surges. 
+
+Below, I combine data on trends for both ED visits and Wastewater into one dataframe and export:
+
+```{r}
+#| output: false
+nwss_agg_2022_pdc_snapshots <-
+    nwss_agg_2022_snapshots |> 
+    select(
+        date,
+        .nwss_pdc_snapshot = .pdc_snapshot
+    ) 
+
+ed_csd_2022_pdc_snapshots <- 
+    ed_csd_2022_snapshots |> 
+    select(
+        date,
+        .ed_pdc_snapshot = .pdc_snapshot 
+    )
+    
+combined_pdc_snapshots <- 
+    full_join(nwss_agg_2022_pdc_snapshots, ed_csd_2022_pdc_snapshots, by = "date") |> 
+    arrange(date)
+
+
+write_csv(combined_pdc_snapshots, "data/combined_pdc_snapshots_2023_06_02.csv")
+```
+
+I have annotated that data in Excel, marking when an Alarm would be triggered on at different thresholds.
+
+Below, I do some further data prep to help with visualization.
+
+```{r}
+admits_2022 <-
+    cli |>
+        filter(date >= ymd("2022-02-15") & date < ymd("2023-01-01")) |> 
+        select(date, admits) |> 
+        add_spline_and_slope("admits") 
+
+test_thresholds <- 
+    read_csv("data/test_thresholds_2023_06_02.csv") |> 
+    mutate(
+        threshold_factor = 
+            factor(
+                threshold,
+                levels = c("Alarm 1.0%", "Alarm 1.5%", "Alarm 2.0%", "Alarm 2.5%"),
+                ordered = TRUE
+            )
+    )
+
+test_inputs <- 
+    read_csv("data/test_inputs_2023_06_02.csv") |> 
+    mutate(
+        threshold_factor = 
+            factor(
+                input,
+                levels = c("ED and Wastewater", "Just ED", "Just Wastewater"),
+                ordered = FALSE
+            )
+    )
+```
+
+Below, I have visualized the alarm periods based on thresholds of 1, 1.5, 2, or 2.5 percent daily change. These periods are superimposed on the overall trend of inpatient admissions for reference
+
+```{r}
+ggplotly(
+    ggplot() +
+    geom_point(aes(x = date, y = admits), alpha = 0.25, color = "blue", data = admits_2022) +
+    geom_line(aes(x = date, y = .spline), color = "blue", data = admits_2022) +
+    geom_rect(aes(xmin = date_min, xmax = date_max, ymin = y_min, ymax = y_max, fill = threshold), data = test_thresholds) +
+    labs(
+        title = "Inpatient Admits for COVID-specific Diagnosis with Alarm Periods",
+        x = NULL,
+        y = NULL,
+        fill = "PDC Warning Threshold"
+    ) +
+    theme_bw()
+) |> 
+layout(hovermode = "x unified")
+```
+
+Subjectively speaking, a threshold of 1.5 percent daily change strikes roughly the right balance between sensitivity and specificity to warn of surge periods.
+
+## Does Wastewater Add Value?
+
+These trigger dates don't seem any better than those you shared based on the ED Early Warning Indicator alone. Let's explore under my system if including the wastewater trend makes much of a difference:
+
+```{r}
+ggplotly(
+    ggplot() +
+    geom_point(aes(x = date, y = admits), alpha = 0.25, color = "blue", data = admits_2022) +
+    geom_line(aes(x = date, y = .spline), color = "blue", data = admits_2022) +
+    geom_rect(aes(xmin = date_min, xmax = date_max, ymin = y_min, ymax = y_max, fill = input), data = test_inputs) +
+    labs(
+        title = "Inpatient Admits for COVID-specific Diagnosis with 1.5 PDC Alarm Periods",
+        x = NULL,
+        y = NULL,
+        fill = "Warning Input(s)"
+    ) +
+    theme_bw()
+) |> 
+    layout(hovermode = "x unified")
+```
+
+Including wastewater trends does seem to add some marginal value in terms of improving warning consistency and detecting a minor surge in late October.
+
+## Can individual treatment plants contribute useful information?
+
+So far, we have been looking at warning trends for the aggregated sum of viral copies sampled at all treatment plants across Cook County. Can we still garner useful trends from individual plants? Below we start by checking out the trends for each respective plant:
+
+```{r}
+nwss_plants <-
+    nwss[1:8] |> 
+    map2(
+        .y = names(nwss[1:8]),
+        .f = 
+            ~ .x |> 
+                filter(date >= ymd("2022-02-15") & date < ymd("2023-01-01")) |> 
+                add_spline_and_slope("conc_flowrt") |> 
+                add_spline_snapshots("conc_flowrt") |> 
+                select(date, conc_flowrt, .spline, .spline_snapshot, .percent_daily_change, .pdc_snapshot) |> 
+                mutate(location = .y)
+    )
+
+plant_trends <-
+    nwss_plants |> 
+    map2(
+        .y = names(nwss_plants),
+        .f =
+            ~ggplotly(
+                .x |>  
+                ggplot(aes(x = date)) +
+                geom_point(aes(y = conc_flowrt), alpha = 0.25, color = "red") +
+                geom_line(aes(y = .spline), color = "red") +
+                geom_line(aes(y = .spline_snapshot), color = "maroon") +
+                labs(
+                    title = paste("Total SARS-CoV-2 Viral Copies per Day at", str_to_title(.y), "<br> Full Spline (red), Spline Snapshots (Maroon)"),
+                    x = "2022",
+                    y = "Copies / Day"
+                ) +
+                theme_bw()
+            )
+    )
+```
+
+::: {.panel-tabset}
+
+## Egan
+
+```{r}
+plant_trends$egan
+```
+
+## Kirie
+
+```{r}
+plant_trends$kirie
+```
+
+## O'Brien
+
+```{r}
+plant_trends$obrien
+```
+
+## Hanover
+
+```{r}
+plant_trends$hanover
+```
+
+
+## Stickney 1
+
+```{r}
+plant_trends$stickney1
+```
+
+## Stickney 2
+
+```{r}
+plant_trends$stickney2
+```
+
+## Lemont
+
+```{r}
+plant_trends$lemont
+```
+
+## Calumet
+
+```{r}
+plant_trends$calumet
+```
+
+:::
+
+Although similar in their overall patterns, there is a decent amount of variability between trend lines for each plant. Below we plot their percent daily changes across time:
+
+```{r}
+plant_pdcs <-
+    nwss_plants |> 
+    map2(
+        .y = names(nwss_plants),
+        .f =
+            ~ggplotly(
+                .x |>  
+                ggplot(aes(x = date)) +
+                geom_line(aes(y = .percent_daily_change), color = "red") +
+                geom_line(aes(y = .pdc_snapshot), color = "maroon") +
+                labs(
+                    title = paste("Percent Daily Change in SARS-CoV-2 Viral Copies at", str_to_title(.y), "<br> Full Spline (red), Spline Snapshots (Maroon)"),
+                    x = "2022",
+                    y = NULL
+                ) +
+                theme_bw()
+            )
+    )
+```
+
+::: {.panel-tabset}
+
+## Egan
+
+```{r}
+plant_pdcs$egan
+```
+
+## Kirie
+
+```{r}
+plant_pdcs$kirie
+```
+
+## O'Brien
+
+```{r}
+plant_pdcs$obrien
+```
+
+## Hanover
+
+```{r}
+plant_pdcs$hanover
+```
+
+
+## Stickney 1
+
+```{r}
+plant_pdcs$stickney1
+```
+
+## Stickney 2
+
+```{r}
+plant_pdcs$stickney2
+```
+
+## Lemont
+
+```{r}
+plant_pdcs$lemont
+```
+
+## Calumet
+
+```{r}
+plant_pdcs$calumet
+```
+
+:::
+
+Snapshots of percent daily change at plants like Egan and Hanover are able to capture lagged versions of the overall trend, but other plants like Calumet struggle to capture a meaningful pattern.
+
+Below, we reshape the data in order to tally how many treatment plants have triggered a warning based on a threshold of 1.5 percent daily change. 
+
+```{r}
+nwss_plants_together <-
+    reduce(nwss_plants, bind_rows) |> 
+    select(date, .percent_daily_change, .pdc_snapshot, location) |> 
+    pivot_wider(
+        id_cols = date,
+        names_from = location,
+        values_from = c(.percent_daily_change, .pdc_snapshot)
+    ) |> 
+    arrange(date) |> 
+    mutate(
+        across(
+            .cols = starts_with(".pdc_snapshot"),
+            .fns = 
+                ~ case_when(
+                    .x > 1.5 ~ TRUE,
+                    .x < 1.5 ~ FALSE
+                )
+        ),
+        across(
+            .cols = starts_with(".pdc_snapshot"),
+            .fns =
+                ~ case_when(
+                    is.na(.x) ~ lag(.x, default = FALSE),
+                    TRUE ~ .x
+                )
+        ),
+        across(
+            .cols = starts_with(".pdc_snapshot"),
+            .fns = ~ zoo::na.locf(.x)
+        )
+    ) |> 
+    rowwise() |> 
+    mutate(
+        total_triggered =
+            sum(
+                c_across(
+                    starts_with(".pdc_snapshot")
+                )
+            ) * 6.25
+    )
+
+glimpse(nwss_plants_together)
+```
+
+
+Then we plot the tally over time in relation to inpatient admits for COVID-specific diagnosis:
+
+```{r}
+ggplot() +
+    geom_point(aes(x = date, y = admits), alpha = 0.25, color = "blue", data = admits_2022) +
+    geom_line(aes(x = date, y = .spline), color = "blue", data = admits_2022) +
+    geom_line(aes(x = date, y = total_triggered), data = nwss_plants_together) +
+    scale_y_continuous(
+        "% Admits for COVID-specific Diagnosis",
+        sec.axis = 
+            sec_axis(
+                ~ . / 6.25, 
+                name = "Total Warnings (1.5 PDC)",
+                breaks = c(0, 2, 4, 6, 8)
+            )
+    ) +
+    labs(x = "2022") +
+    theme_bw()
+```
+
+Roughly speaking, it seems that this form of signal resulted in a moderate lead time for the April-May surge, moderate lag time for the smaller July surge, and coincidence with the Oct-Dec surge.
+

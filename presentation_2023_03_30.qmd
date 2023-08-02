@@ -1,0 +1,193 @@
+## Prep
+
+```{r}
+#| output: false
+library(targets)
+library(tidyverse)
+library(lubridate)
+library(timetk)
+library(plotly)
+sapply(
+    paste0("R/", list.files("R/")),
+    source
+)
+```
+
+Here I load my data. I have created a series of upstream data wrangling steps that culminate in a list containing separate dataframes for each WWTP and one for the aggregation of all plants.
+
+```{r}
+load("data/2023-01-27_hosp-metrics.Rdata")
+tar_make()
+tar_load(nwss)
+```
+
+```{r}
+source("R/add_spline_snapshots.R")
+cli_2022_and_full_spline <- 
+    cli |> 
+    filter(date >= ymd("2022-02-15") & date < ymd("2023-01-01")) |> 
+    add_spline_and_slope("cli") |>
+    mutate(
+        z_cli = (cli - mean(cli))/sd(cli)
+    ) |> 
+    add_spline_snapshots("cli")
+    # select(
+    #     date,
+    #     percent_ed_visits_for_covid = cli,
+    #     .ed_spline = .spline,
+    #     .cli_z_spline = .z_spline,
+    #     .cli_spline_slope = .spline_slope,
+    #     .cli_percent_daily_change = .percent_daily_change 
+    # )
+
+cook_agg_and_full_spline <- 
+    nwss$cook_aggregate |> 
+    filter(date >= ymd("2022-02-15") & date < ymd("2023-01-01")) |> 
+    add_spline_and_slope("conc_flowrt_sum") |> 
+    mutate(
+        z_conc_flowrt_sum = (conc_flowrt_sum - mean(conc_flowrt_sum))/sd(conc_flowrt_sum)
+    ) |> 
+    add_spline_snapshots("conc_flowrt_sum")
+    # select(
+    #     date,
+    #     summed_viral_copies_per_day = conc_flowrt_sum,
+    #     .wastewater_spline = .spline,
+    #     .nwss_z_spline = .z_spline,
+    #     .nwss_spline_slope = .spline_slope,
+    #     .nwss_percent_daily_change = .percent_daily_change 
+    # )
+
+test_thresholds <- 
+    read_csv("data/test_thresholds.csv") |> 
+    mutate(
+        threshold_factor = 
+            factor(
+                threshold,
+                levels = c("Alarm 1.0%", "Ground Truth 1.0%", "Alarm 1.5%", "Ground Truth 1.5%", "Alarm 2.0%", "Ground Truth 2.0%"),
+                ordered = TRUE
+            )
+    )
+    
+    
+test_inputs <- 
+    read_csv("data/test_inputs.csv") |> 
+    mutate(
+        input_factor = 
+            factor(
+                input,
+                levels = c("ED and NWSS", "Just ED", "Just NWSS", "Admits Ground Truth"),
+                ordered = TRUE
+            )
+    )
+```
+
+```{r}
+ggplotly(
+    ggplot() +
+        geom_point(
+            aes(x = date, y = admits),
+            color = "blue",
+            alpha = 0.25,
+            data = admits_full_spline
+        ) +
+        geom_line(
+            aes(x = date, y = .spline),
+            color = "blue",
+            data = admits_full_spline
+        ) +
+        geom_rect(
+            aes(
+                xmin = date_min,
+                xmax = date_max,
+                ymin = y_min,
+                ymax = y_max,
+                fill = threshold_factor
+            ),
+            data = test_thresholds
+        ) +
+        scale_fill_manual(values = c("darkorange1", "darkorange3", "thistle1", "thistle3", "darkseagreen2", "darkseagreen4")) +
+        # geom_point(
+        #     aes(x = date, y = conc_flowrt_sum),
+        #     color = "red",
+        #     alpha = 0.25,
+        #     data = cook_agg_and_full_spline
+        # ) +
+        # geom_line(
+        #     aes(x = date, y = .pdc_snapshot),
+        #     color = "red",
+        #     data = cook_agg_and_full_spline
+        # ) +
+        labs(
+            x = NULL,
+            y = NULL,
+            title = "# of Inpatient Admissions for Covid-like Illness <br> Overlaid with Alarms (and Ground Truth) at Different Thresholds",
+            fill = "Threshold (w/ Both Inputs)"
+        ) +
+        # coord_cartesian(ylim = c(-6,6)) +
+        theme_minimal()
+) |> layout(hovermode = "x unified")
+```
+
+```{r}
+ggplotly(
+    ggplot() +
+        geom_point(
+            aes(x = date, y = admits),
+            color = "blue",
+            alpha = 0.25,
+            data = admits_full_spline
+        ) +
+        geom_line(
+            aes(x = date, y = .spline),
+            color = "blue",
+            data = admits_full_spline
+        ) +
+        geom_rect(
+            aes(
+                xmin = date_min,
+                xmax = date_max,
+                ymin = y_min,
+                ymax = y_max,
+                fill = input_factor
+            ),
+            data = test_inputs
+        ) +
+        scale_fill_brewer(palette = "Dark2") +
+        # geom_point(
+        #     aes(x = date, y = conc_flowrt_sum),
+        #     color = "red",
+        #     alpha = 0.25,
+        #     data = cook_agg_and_full_spline
+        # ) +
+        # geom_line(
+        #     aes(x = date, y = .pdc_snapshot),
+        #     color = "red",
+        #     data = cook_agg_and_full_spline
+        # ) +
+        labs(
+            x = NULL,
+            y = NULL,
+            title = "# of Inpatient Admissions for Covid-like Illness <br> Overlaid with Alarms (and Ground Truth) from Different Inputs",
+            fill = "Alarm Input (w/ 1.5 PDC)"
+        ) +
+        # coord_cartesian(ylim = c(-6,6)) +
+        theme_minimal()
+) |> layout(hovermode = "x unified")
+
+```
+
+```{r}
+cli_2022_and_full_spline |> 
+    arrange(date) |> 
+    select(date, .percent_daily_change) |> 
+    view()
+```
+
+```{r}
+admits_full_spline <-
+    cli |> 
+    add_spline_and_slope("admits") |> 
+    filter(date >= ymd("2022-02-15") & date < ymd("2023-01-01")) |> 
+    arrange(date)
+```
+

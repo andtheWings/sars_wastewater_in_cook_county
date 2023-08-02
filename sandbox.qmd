@@ -1,0 +1,577 @@
+
+```{r}
+library(targets)
+library(tidyverse)
+library(sf)
+library(timetk)
+library(plotly)
+library(ggsci)
+
+```
+
+
+```{r}
+#arrow::write_parquet(tar_read(ww_cdc_in_cook), "ww_cook_county.parquet")
+```
+
+
+
+```{r}
+
+source("R/plot_series_threshold_anomalies.R")
+source("R/add_spline_and_slope.R")
+source("R/plot_slope_threshold_anomalies.R")
+tar_make()
+tar_load(nwss_cook)
+load("data/2023-01-27_hosp-metrics.Rdata")
+```
+    
+
+```{r}
+ggplotly(
+    cook_wastewater_aggregate |> 
+    ggplot(aes(x = date)) +
+    geom_line(aes(y = log_conc_flowrt_sum)) +
+    geom_line(aes(y = .spline), color = "blue") +
+    geom_line(aes(y = loess_5), color = "red")
+)
+```
+
+```{r}
+source("R/add_spline_and_slope.R")
+source("R/add_loess_and_trend.R")
+source("R/aggregate_nwss_cook.R")
+
+tar_make()
+
+tar_load(nwss_cook_aggregate)
+```
+
+
+```{r}
+
+
+cook_wastewater_aggregate_test <-
+    nwss_cook_aggregate |> 
+    add_loess_and_trend("day_num", "log_conc_flowrt_sum")
+
+ggplotly(
+    nwss_obrien |> 
+    add_spline_and_slope("day_num", "log_conc_flowrt") |>  
+    add_loess_and_trend("day_num", "log_conc_flowrt") |> 
+    ggplot(aes(x = date)) +
+    # geom_line(aes(y = conc_flowrt)) +
+    geom_line(aes(y = log_conc_flowrt), color = "black") +
+    geom_line(aes(y = .spline), color = "blue") +
+    geom_line(aes(y = .loess), color = "red") +
+    theme_bw()
+)
+
+
+```
+
+
+```{r}
+tar_make()
+tar_load(nwss_cook)
+source("R/add_spline_snapshots.R")
+source("R/add_spline_and_slope.R")
+source("R/plot_base_time_series.R")
+source("R/plot_threshold_anomalies.R")
+source("R/generate_threshold_plot_series.R")
+
+nwss_obrien <- filter(nwss_cook, short_name == "obrien")
+nwss_hanover <- filter(nwss_cook, short_name == "hanover")
+nwss_stickney2 <- filter(nwss_cook, short_name == "stickney_2")
+nwss_stickney1 <- filter(nwss_cook, short_name == "stickney_1")
+nwss_calumet <- filter(nwss_cook, short_name == "calumet")
+nwss_kirie <- filter(nwss_cook, short_name == "kirie")
+nwss_lemont <- filter(nwss_cook, short_name == "lemont")
+nwss_egan <- filter(nwss_cook, short_name == "egan")
+
+tar_load(nwss_cook_aggregate)
+
+nwss_cook_aggregate <-
+    tar_read(nwss_cook_aggregate) |> 
+    filter(date <= lubridate::ymd("2022-07-05")) |> 
+    add_spline_and_slope(y_var = "conc_flowrt_sum") |> 
+    add_spline_snapshots("conc_flowrt_sum")
+    
+cli_april <- 
+    cli |> 
+    mutate(day_num = as.numeric(date - min(date))) |> 
+    filter(date >= lubridate::ymd("2022-02-15") & date <= lubridate::ymd("2022-07-05")) |> 
+    add_spline_and_slope(y_var = "cli") |> 
+    add_spline_snapshots("cli")
+
+# nwss_egan |> 
+#     filter(date <= lubridate::ymd("2022-07-05")) |> 
+#     add_spline_and_slope(day_num_var = "day_num", y_var = "log_conc_flowrt") |> 
+#     ggplot(aes(x = date)) +
+#     geom_line(aes(y = .spline)) +
+#     geom_point(aes(y = log_conc_flowrt))
+```
+```{r}
+timelines <- read_csv("data/timelines.csv")
+
+ggplotly(
+    ggplot() +
+    #geom_rect(aes(xmin = date_min, xmax = date_max, ymin = y_min, ymax = y_max, fill = site), data = timelines) +
+    #geom_point(aes(x = date, y = cli), data = cli_2022, alpha = 0.25) +
+    geom_line(aes(x = date, y = .spline_slope), data = cli_april) +
+    #geom_point(aes(x = date, y = cli), data = cli_april) +
+    geom_line(aes(x = date, y = .spline_slope), data = nwss_cook_aggregate, color = "blue") +
+    #geom_point(aes(x = date, y = log_conc_flowrt_sum), data = nwss_cook_aggregate, color = "blue") +
+    theme_bw()
+)
+```
+
+
+```{r}
+nwss_hanover |> 
+    generate_threshold_plot_series(
+        date_vct_slice =  48:68,
+        y_var_char = "log_conc_flowrt",
+        fit_var_symb = .spline_slope,
+        threshold_num = 0.01
+    )
+```
+
+```{r}
+lubridate::ymd("2022-04-03") - lubridate::ymd("2022-04-10")
+lubridate::ymd("2022-07-02") - lubridate::ymd("2022-07-05")
+lubridate::ymd("2022-10-20") - lubridate::ymd("2022-10-25")
+```
+
+```{r}
+cli_2022 <-
+    cli |> 
+    filter(date >= lubridate::ymd("2022-03-01") & date <= lubridate::ymd("2022-12-31")) |> 
+    mutate(day_num = as.numeric(date - lubridate::ymd("2023-01-01"))) |> 
+    add_spline_and_slope(day_num_var = "day_num", y_var = "cli")
+
+admits_2022 <-
+    cli |> 
+    filter(date >= lubridate::ymd("2022-01-01") & date <= lubridate::ymd("2022-12-31")) |> 
+    mutate(day_num = as.numeric(date - lubridate::ymd("2023-01-01"))) |> 
+    add_spline_and_slope(day_num_var = "day_num", y_var = "admits")
+
+plot_time_series(cli_2022, date, cli, .smooth = FALSE)
+```
+
+```{r}
+plot_time_series(admits_2022, date, .spline, .smooth = FALSE)
+```
+
+
+```{r}
+source("R/add_spline_snapshots.R")
+source("R/add_spline_and_slope.R")
+
+nwss_hanover <- filter(nwss_cook, short_name == "hanover")
+nwss_stickney_2 <- filter(nwss_cook, short_name == "stickney_2")
+
+nwss_stickney_2 |> 
+    add_spline_snapshots("log_conc_flowrt") |> 
+    select(date, .spline_slope_snapshot) |> 
+    view()
+
+```
+
+
+```{r}
+plot_time_series(nwss_stickney_2, date, log_conc_flowrt, .smooth = FALSE)
+    ```
+
+
+```{r}
+add_spline_and_slope(nwss_cook, "day_num", "log_conc_flowrt")
+```
+
+
+```{r}
+hanover_spline_snapshots <- generate_leading_spline_snapshots(nwss_hanover, "log_conc_flowrt")
+
+plot_time_series(hanover_spline_snapshots, date, .spline_slope, .smooth = FALSE)
+```
+
+```{r}
+hanover_spline_snapshots |> 
+    select(date, .spline_slope) |> 
+    select(date_spline) |> 
+    view()
+```
+
+
+
+```{r}
+source("R/plot_base_time_series.R")
+source("R/plot_threshold_anomalies.R")
+source("R/add_spline_and_slope.R")
+
+cli |> 
+    mutate(day_num = date - lubridate::ymd("2021-11-08")) |> 
+    add_spline_and_slope(y_var = "cli") |> 
+    filter(date > lubridate::ymd("2021-11-07")) |> 
+    plot_threshold_anomalies(date, .spline, 5) |> 
+    ggplotly()
+```
+
+    
+```{r}
+index_day <- lubridate::ymd("2020-03-01")
+
+ed_visits <-
+    cli |> 
+    mutate(day_num = as.numeric(date - index_day)) |> 
+    add_spline_and_slope("day_num", "cli") |> 
+    filter(date > lubridate::ymd("2021-11-07"))
+
+admits <-
+    cli |> 
+    mutate(day_num = as.numeric(date - index_day)) |> 
+    filter(date > lubridate::ymd("2021-11-07")) |> 
+    add_spline_and_slope("day_num", "admits")
+    
+
+plot_time_series(cli, date, cli)
+```
+
+
+
+```{r}
+calumet <-
+    nwss_cook |> 
+    filter(short_name == "calumet") |> 
+    add_spline_and_slope(y_var = "M_viral_copies_per_day_per_person")
+
+ggplotly(
+    plot_threshold_anomalies(calumet, date, .slope, threshold_num = 2)
+)
+```
+
+
+```{r}
+plot_time_series(beds_metrics, report_date, icu_avail_percent)
+```
+
+```{r}
+cli_earliest_date <- min(cli$date)
+
+cli$day_num = as.numeric(cli$date - cli_earliest_date)
+    
+```
+
+
+    
+```{r}
+
+date_cut <- lubridate::ymd("2021-12-22")
+
+# ed_frame <-
+#     cli |> 
+#     filter(date < date_cut) |> 
+    
+
+ww_frame <- 
+    nwss_cook |> 
+    #filter(short_name %in% c("calumet")) |>
+    #filter(date < date_cut) |>
+    filter(M_viral_copies_per_day_per_person < 500) |> 
+    add_spline_and_slope()
+
+ggplotly(
+    plot_series_threshold_anomalies(ww_frame, label = "County-Wide")
+)
+
+ggplotly(
+    plot_slope_threshold_anomalies(ww_frame, "Calumet")
+)
+```
+
+```{r}
+
+
+```
+
+
+```{r}
+source("R/add_log_spline_and_slope.R")
+ggplotly(
+    nwss_cook |> 
+    filter(short_name %in% c("calumet")) |>
+    #filter(date < lubridate::ymd("2022-04-30")) |> 
+    add_log_spline_and_slope() |> 
+    plot_series_threshold_anomalies(label = "Calumet")
+    
+)
+```     
+
+```{r}
+summary(ww_cdc_in_cook$M_viral_copies_per_day_per_person)
+```
+
+
+```{r}
+ww_cdc_in_cook |> 
+    ggplot(aes(x = M_viral_copies_per_day_per_person)) +
+    geom_histogram()
+```
+
+## Full Time Series
+
+```{r}
+source("R/smooth_and_slope.R")
+source("R/plot_series_and_smooth.R")
+source("R/plot_series_auto_anomalies.R")
+source("R/plot_slope_threshold_anomalies.R")
+
+tar_load(nwss_cook)
+
+nwss_calumet_slope <-
+    nwss_cook |> 
+    filter(short_name == "calumet") |> 
+    smooth_and_slope()
+
+nwss_egan_slope <-
+    nwss_cook |> 
+    filter(short_name == "egan") |> 
+    smooth_and_slope()
+
+nwss_egan_trunc_slope <-
+    nwss_cook |> 
+    filter(short_name == "egan") |> 
+    filter(date < lubridate::ymd("2022-04-03")) |> 
+    smooth_and_slope()
+
+ggplotly(plot_series_and_smooth(nwss_calumet_slope, "Calumet"))
+```
+
+
+```{r}
+ggplotly(plot_series_threshold_anomalies(nwss_calumet_slope, "Calumet"))
+```
+
+
+```{r}
+nwss_calumet_slope |> 
+    plot_time_series(
+        date, .slope,
+        .smooth = FALSE, 
+        .title = paste0("SARS-CoV-2 Surveillance <b>Slope</b> at Calumet"), 
+        .y_lab = "Change in Million Viral Copies per Day per Person",
+    )
+```
+
+```{r}
+source("R/plot_series_auto_anomalies.R")
+ggplotly(plot_series_auto_anomalies(nwss_egan_slope, "Egan", 0.1))
+```
+
+```{r}
+source("R/plot_series_threshold_anomalies.R")
+
+ggplotly(plot_series_threshold_anomalies(nwss_egan_trunc_slope, "Egan"))
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+ggplotly(plot_slope_threshold_anomalies(nwss_egan_slope, "Egan", 2.5))
+```
+
+
+## Truncated Time Series Test
+
+
+```{r}
+nwss_egan_trunc_slope <-
+    nwss_cook |> 
+    filter(short_name == "egan") |> 
+    filter(date < lubridate::ymd("2022-04-05")) |> 
+    smooth_and_slope()
+
+ggplotly(plot_series_threshold_anomalies(nwss_egan_trunc_slope, "Egan"))
+```
+
+
+```{r}
+ggplotly(plot_slope_threshold_anomalies(nwss_egan_trunc_slope, "Egan", 2))
+```
+
+```{r}
+nwss_calumet_trunc_slope <-
+    nwss_cook |> 
+    filter(short_name == "calumet") |> 
+    filter(date < lubridate::ymd("2021-12-21")) |> 
+    smooth_and_slope()
+
+ggplotly(plot_series_threshold_anomalies(nwss_calumet_trunc_slope, "Calumet"))
+```
+ 
+
+```{r}
+
+
+ggplotly(plot_slope_threshold_anomalies(nwss_calumet_trunc_slope, "Calumet"))
+```
+
+
+```{r}
+calumet_trunc_slope |> 
+    plot_anomaly_diagnostics(
+        date, .slope
+    )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+#| label: treatment_plants
+pre_split |> 
+    mutate(
+      display_name = case_when(
+          grepl("kirie", wwtp_name) ~ "Kirie, Mid Northwest Suburbs",
+          grepl("egan", wwtp_name) ~ "Egan, Far Northwest Suburbs",
+          grepl("hanover", wwtp_name) ~ "Hanover Park, Far Northwest Suburbs",
+          grepl("brien", wwtp_name) ~ "O'Brien, Northeast Suburbs and Chicago",
+          grepl(" sws", wwtp_name) ~ "Stickney (1), West Suburbs and Chicago",
+          grepl(" ws", wwtp_name) ~ "Stickney (2), West Suburbs and Chicago",
+          grepl("lemont", wwtp_name) ~ "Lemont, Far Southwest Suburbs",
+          grepl("calumet", wwtp_name) ~ "Calumet, South Suburbs and Chicago"
+      )
+    ) |>
+    select(wwtp_name, short_name, display_name, population_served) |> 
+    distinct()
+```
+
+
+
+
+```{r}
+#| label: not_used
+
+# Get rid of original testing method 
+filter(major_lab_method == 1)
+
+#remove lemont outlier
+filter(!(grepl("lemont", wwtp_name) & date == as.Date("2022-02-28"))) 
+```
+
+
+
+
+
+
+```{r}
+tar_read(ww_cdc_analyzed) |> 
+    select(date, sample_collect_date_time, wwtp_name, major_lab_method, population_served, flow_rate, pcr_target_avg_conc, pcr_target_flowpop_lin, pcr_target_flowpop_log10) |> 
+    arrange(date) |> 
+    drop_na() |> 
+    glimpse()
+```
+
+```{r}
+ww_cdc_raw |> 
+    #Filter for Cook County cases sampled at Wastewater Treatment Plants
+    filter(grepl("17031", county_names) & sample_location == "wwtp")|>
+    group_by(wwtp_name, sample_collect_date, major_lab_method, population_served) |>
+    summarize(
+        across(
+            c(flow_rate, pcr_target_avg_conc),
+            mean
+        ),
+        .groups = "keep"
+    ) |> 
+    ungroup() |> 
+    mutate(
+        short_name = 
+            case_when(
+                grepl("kirie", wwtp_name) ~ "kirie",
+                grepl("egan", wwtp_name) ~ "egan",
+                grepl("hanover", wwtp_name) ~ "hanover",
+                grepl("brien", wwtp_name) ~ "obrien",
+                grepl(" sws", wwtp_name) ~ "stickney 1",
+                grepl(" ws", wwtp_name) ~ "stickney 2",
+                grepl("lemont", wwtp_name) ~ "lemont",
+                grepl("calumet", wwtp_name) ~ "calumet"
+            ),
+        display_name = 
+            case_when(
+                grepl("kirie", wwtp_name) ~ "Kirie, Mid Northwest Suburbs",
+                grepl("egan", wwtp_name) ~ "Egan, Far Northwest Suburbs",
+                grepl("hanover", wwtp_name) ~ "Hanover Park, Far Northwest Suburbs",
+                grepl("brien", wwtp_name) ~ "O'Brien, Northeast Suburbs and Chicago",
+                grepl(" sws", wwtp_name) ~ "Stickney (1), West Suburbs and Chicago",
+                grepl(" ws", wwtp_name) ~ "Stickney (2), West Suburbs and Chicago",
+                grepl("lemont", wwtp_name) ~ "Lemont, Far Southwest Suburbs",
+                grepl("calumet", wwtp_name) ~ "Calumet, South Suburbs and Chicago"
+            ),
+        .after = wwtp_name
+    ) |> 
+    mutate(
+        flow_rate_l = flow_rate * 3.785411784, #convert flow_rate to liters
+        conc_flowrt = pcr_target_avg_conc * flow_rate_l
+    ) |> 
+    arrange(sample_collect_date) |> 
+    view()
+    
+lemont_adjust_dates <- 
+  ww_cook |>
+  filter(short_name %in% c("kirie", "egan", "hanover")) |>
+  group_by(date) |>
+  tally() |>
+  ungroup() |>
+  mutate(date = date + 1) |>
+  pull(date)
+    
+```
+
+
+```{r}
+timetk::plot_time_series(
+    .data = tar_read(biobot_cases_in_cook),
+    .date_var = date,
+    .value = rolling_average_cases_per_100k_centered
+)
+```
+
+```{r}
+split_biobot_cases_in_cook <- 
+    tar_read(biobot_cases_in_cook) |> 
+    rsample::initial_time_split()
+```
+
+```{r}
+model_fit_arima_no_boost <- 
+    arima_reg() |>
+    set_engine(engine = "auto_arima") |>
+    fit(rolling_average_cases_per_100k_centered ~ date, data = training(split_biobot_cases_in_cook))
+```
+
+```{r}
+model_fit_arima_boosted <- 
+    arima_boost(
+        min_n = 2,
+        learn_rate = 0.015
+    ) |>
+    set_engine(engine = "auto_arima_xgboost") |>
+    fit(value ~ date + as.numeric(date) + factor(month(date, label = TRUE), ordered = F),
+        data = training(splits))
+```
+
